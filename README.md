@@ -42,16 +42,22 @@ inner loop.
 
 ## Install
 
-Foreman is two Claude Code slash commands. Make them available in every project
-by linking them into your user commands directory:
+Foreman is two Claude Code slash commands. Clone the repo and run the installer —
+it links the commands into your user commands directory so they work in every
+project:
 
 ```bash
 git clone https://github.com/nawka12/foreman.git
 cd foreman
-mkdir -p ~/.claude/commands
-ln -s "$PWD/.claude/commands/delegate.md"       ~/.claude/commands/delegate.md
-ln -s "$PWD/.claude/commands/opencode-model.md" ~/.claude/commands/opencode-model.md
+./install.sh
 ```
+
+The links point back into the clone, so **updating is just `git pull`** — no
+reinstall. Re-run `./install.sh` any time to repair links or pick up new files,
+`./install.sh --uninstall` to remove them. (Set `CLAUDE_COMMANDS_DIR` to target a
+non-default commands dir.) Prefer doing it by hand? The installer just symlinks
+`.claude/commands/{delegate.md,opencode-model.md,opencode-model.sh}` into
+`~/.claude/commands/`.
 
 **Requirements**
 
@@ -66,8 +72,9 @@ Then, from any project: `/delegate <task>` to delegate work, and
 ## Model tiers
 
 The executor model is resolved by precedence: `DELEGATE_MODEL` (env) →
-OpenCode's global default (`~/.config/opencode/opencode.jsonc`) → free fallback.
-An escalation ladder is also built into the command:
+OpenCode's resolved default (read from `opencode debug config`, so it stays
+correct even when a project-level config overrides the global one) → free
+fallback. An escalation ladder is also built into the command:
 
 | Tier        | Model                              | When                          |
 |-------------|------------------------------------|-------------------------------|
@@ -75,8 +82,14 @@ An escalation ladder is also built into the command:
 | Cheap paid  | `opencode-go/deepseek-v4-flash`    | auto-escalation after retries |
 
 Use **`/opencode-model`** to manage the default: no argument lists available
-models, a `provider/model` argument sets the global default (which `/delegate`
-then uses). `opencode models` also just lists them.
+models and the current effective one, a `provider/model` argument sets the global
+default (which `/delegate` then uses) and **verifies** the change actually took
+effect — if a project-level `opencode.json` is overriding it, the command says so
+instead of silently no-op'ing. `opencode models` also just lists them.
+
+**Variants** (reasoning effort: `high`/`max`/`minimal`) are a separate axis from
+the model id, applied per run via `opencode run --variant <v>` (TUI: `ctrl+t`).
+Set one for delegated runs with `DELEGATE_VARIANT=<v>`.
 
 ## Caveats
 

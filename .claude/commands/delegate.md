@@ -55,16 +55,19 @@ diff → wasted reloops. Be exact about files and acceptance criteria.
 ### Phase 2 — DELEGATE (executor)
 
 Run from the repo root. The executor model is resolved by precedence:
-`DELEGATE_MODEL` env → OpenCode's global default (`~/.config/opencode/opencode.jsonc`)
-→ free fallback. Change the default with `/opencode-model <provider/model>`.
+`DELEGATE_MODEL` env → OpenCode's resolved default → free fallback. Change the
+default with `/opencode-model <provider/model>`. Read the default from
+`opencode debug config` (the *resolved* model — correct even when a project-level
+`opencode.json` overrides the global one), not by grepping a guessed config file.
 
 ```bash
 ROOT="$(git rev-parse --show-toplevel)"
-# precedence: DELEGATE_MODEL env > OpenCode global default > free fallback
-CFG_MODEL="$(grep -oP '"model"\s*:\s*"\K[^"]+' ~/.config/opencode/opencode.jsonc 2>/dev/null | head -1)"
+# precedence: DELEGATE_MODEL env > OpenCode resolved default > free fallback
+CFG_MODEL="$(opencode debug config 2>/dev/null | grep -oP '"model"\s*:\s*"\K[^"]+' | head -1)"
 MODEL="${DELEGATE_MODEL:-${CFG_MODEL:-opencode/deepseek-v4-flash-free}}"
-opencode run --dir "$ROOT" -m "$MODEL" --dangerously-skip-permissions \
-  "$(cat "$ROOT/.delegate/spec.md")"
+# DELEGATE_VARIANT (optional): reasoning effort, e.g. high|max|minimal.
+opencode run --dir "$ROOT" -m "$MODEL" ${DELEGATE_VARIANT:+--variant "$DELEGATE_VARIANT"} \
+  --dangerously-skip-permissions "$(cat "$ROOT/.delegate/spec.md")"
 ```
 
 Let OpenCode do all the file reading, editing, and tool-running. You wait.
