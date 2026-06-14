@@ -29,6 +29,17 @@ keeps runs fast, deterministic, and isolated from plugin-load problems (a stale
 plugin in `~/.config/opencode` can otherwise hang bootstrap before the model even
 starts). Drop `--pure` only if your executor genuinely needs a custom plugin.
 
+**Watch every run for a stall.** A healthy `opencode run` streams its tool calls
+(`→ Read …`, `$ …`) to stdout within a few seconds. **Zero output after ~30–60s means
+the model has stalled** — almost always because the brief was too open-ended for a
+cheap model to plan, so it never emits a first token. A stall can sit silent for
+20+ minutes; do **not** wait it out. Cap every run with `timeout` so silence fails
+fast (the command examples below already do this), and treat exit code 124 as
+"re-scope with a sharper, narrower brief," not "retry the same prompt." If you must
+kill a run by hand, kill it by **PID** (`pgrep -f deepseek` or read the PID you
+backgrounded, then `kill <pid>`) — never `pkill -f "opencode run"`, which also
+matches *your own* orchestrating shell command and kills it out from under you.
+
 ---
 
 ### Phase 0 — Preconditions (once)
@@ -36,10 +47,15 @@ starts). Drop `--pure` only if your executor genuinely needs a custom plugin.
 1. Confirm a git repo: `git rev-parse --show-toplevel`. If not, stop and tell the
    user to `git init` first — the loop uses `git diff` to review and `git commit`
    to gate.
-2. Check `git status --porcelain`. If the tree is dirty, **stop and ask** whether
-   to proceed (delegated edits would commingle with their work) or stash first. A
-   clean tree makes every source diff attributable to the executor.
-3. Resolve the executor model and scratch dir:
+2. Check the tree is clean, **ignoring the scratch dir** a prior run may have left:
+   `git status --porcelain -- . ':!.delegate'`. If anything prints, the tree is dirty
+   — **stop and ask** whether to proceed (delegated edits would commingle with their
+   work) or stash first. A clean tree makes every source diff attributable to the
+   executor. (Plain `git status --porcelain` would flag a leftover `.delegate/` as
+   dirty and trip this check on every repeat run — hence the pathspec.)
+3. Resolve the executor model and scratch dir, and keep the scratch dir out of git
+   locally so it never pollutes a status/diff/read-only check (`.git/info/exclude`
+   ignores it without touching the user's tracked `.gitignore`):
 
    ```bash
    ROOT="$(git rev-parse --show-toplevel)"
@@ -47,19 +63,35 @@ starts). Drop `--pure` only if your executor genuinely needs a custom plugin.
    CFG_MODEL="$(opencode debug config 2>/dev/null | grep -oP '"model"\s*:\s*"\K[^"]+' | head -1)"
    MODEL="${DELEGATE_MODEL:-${CFG_MODEL:-opencode/deepseek-v4-flash-free}}"
    mkdir -p "$ROOT/.delegate"
+   grep -qxF '.delegate/' "$ROOT/.git/info/exclude" 2>/dev/null || echo '.delegate/' >> "$ROOT/.git/info/exclude"
    ```
 
 ### Phase 1 — EXPLORE (executor)
 
 Relay the user's request to the executor and have it investigate the codebase and
-write a **concise, anchored** report — read-only, no edits. Compose the brief
-(fill in the bracketed parts), then run from the repo root:
+write a **concise, anchored** report — read-only, no edits.
+
+**Scope the brief — a cheap model stalls on an open-ended whole-repo prompt.** "Investigate
+the codebase and report everything" routinely produces *zero* output on a real repo:
+the model can't plan an unbounded task and never emits a first token (the silent stall
+described above). Don't make the executor discover the surface — **name the exact files
+to read**, which is cheap to work out yourself first (`git ls-files`, `wc -l` for the
+big ones, a `pubspec`/`package.json` peek for stack + tests). Pair that with a short,
+specific list of what to look for. If the surface is large, **split it into several
+focused passes** — e.g. services, then UI, then project-level — each reading a handful
+of named files and writing its **own** `.delegate/report_<area>.md` (separate files so
+parallel passes can't clobber each other's appends). Several small, scoped runs beat
+one broad run that hangs.
+
+Compose the brief (fill in the bracketed parts) and run from the repo root, **capped
+with `timeout`** so a stall fails fast instead of burning 20 minutes:
 
 ```bash
-opencode run --pure --dir "$ROOT" -m "$MODEL" --dangerously-skip-permissions "$(cat <<'PROMPT'
+timeout 600 opencode run --pure --dir "$ROOT" -m "$MODEL" --dangerously-skip-permissions "$(cat <<'PROMPT'
 You are a read-only code explorer. The user wants: <PASTE the request + any detail/constraints>.
-Investigate the codebase and WRITE your findings to .delegate/report.md. Do NOT modify
-any other file. Keep it concise and high-signal — a working brief, not a brain dump:
+Read ONLY these files (do NOT scan the whole repo): <EXPLICIT file list>.
+WRITE your findings to .delegate/report.md and do NOT modify any other file. Keep it
+concise and high-signal — a working brief, not a brain dump:
 - Relevant files (paths) and why each matters
 - Current behavior of the code involved
 - Conventions/patterns to match (naming, style, error handling, imports)
@@ -67,15 +99,22 @@ any other file. Keep it concise and high-signal — a working brief, not a brain
 - Tests: how they're run, where they live, the existing test pattern
 - Gotchas / constraints
 Anchor every claim with file:line, exact signatures, and short quoted snippets so it is
-verifiable. If something is unknown, say so — do not guess.
+verifiable. If something is unknown, say so — do not guess. Write the file, then STOP.
 PROMPT
-)"
+)" || echo "explore run exited $? (124 = timed out → re-scope with a narrower file list / split into passes)"
 ```
 
-Then **verify read-only**: `git status --porcelain` must be empty. `.delegate/` is
-gitignored, so `report.md` won't appear — anything that *does* appear means the
-executor touched source during exploration; revert it (`git checkout -- <file>`)
-and note it. Read `.delegate/report.md`.
+Then **verify read-only**: `git status --porcelain -- . ':!.delegate'` must be empty
+(the `:!.delegate` pathspec drops the scratch dir, which is not necessarily gitignored).
+Anything that prints means the executor touched source during exploration; revert it
+(`git checkout -- <file>`) and note it. Read `.delegate/report.md` (and any
+`report_<area>.md` from extra passes).
+
+**Some tasks end here.** If the request was a question or audit ("what could we
+improve?", "how does X work?", "is Y safe?"), the synthesized report *is* the
+deliverable — present the findings (spot-checking a few anchors first, as in Phase 2)
+and let the user pick what, if anything, to implement. Only continue to Phase 2 once
+there is a concrete change to make.
 
 ### Phase 2 — SPEC (you)
 
@@ -110,11 +149,13 @@ and acceptance criteria.
 ### Phase 3 — IMPLEMENT (executor)
 
 Fresh run; the spec is the handoff. Let OpenCode do all the file reading, editing,
-and tool-running — you wait.
+and tool-running — you wait, but watch for the stall signature (no streamed output)
+and let `timeout` bound it:
 
 ```bash
-opencode run --pure --dir "$ROOT" -m "$MODEL" ${DELEGATE_VARIANT:+--variant "$DELEGATE_VARIANT"} \
-  --dangerously-skip-permissions "$(cat "$ROOT/.delegate/spec.md")"
+timeout 900 opencode run --pure --dir "$ROOT" -m "$MODEL" ${DELEGATE_VARIANT:+--variant "$DELEGATE_VARIANT"} \
+  --dangerously-skip-permissions "$(cat "$ROOT/.delegate/spec.md")" \
+  || echo "implement run exited $? (124 = timed out → tighten or split the spec, then retry)"
 ```
 
 ### Phase 4 — REVIEW (you)
