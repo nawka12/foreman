@@ -29,10 +29,13 @@ keeps runs fast, deterministic, and isolated from plugin-load problems (a stale
 plugin in `~/.config/opencode` can otherwise hang bootstrap before the model even
 starts). Drop `--pure` only if your executor genuinely needs a custom plugin.
 
-**Watch every run for a stall.** A healthy `opencode run` streams its tool calls
-(`→ Read …`, `$ …`) to stdout within a few seconds. **Zero output after ~30–60s means
-the model has stalled** — almost always because the brief was too open-ended for a
-cheap model to plan, so it never emits a first token. A stall can sit silent for
+**Watch every run for a stall.** The run commands below pass `--thinking`, so a
+healthy `opencode run` streams the model's reasoning (`Thinking: …`) and then its
+tool calls (`→ Read …`, `$ …`) to stdout within a few seconds — reasoning shows up
+*before* the first tool call, so the planning phase is no longer silent and "thinking"
+is now distinguishable from "stalled." **Zero output after ~30–60s means the model has
+stalled** — almost always because the brief was too open-ended for a cheap model to
+plan, so it never emits a first token (not even a thinking block). A stall can sit silent for
 20+ minutes; do **not** wait it out. Cap every run with `timeout` so silence fails
 fast (the command examples below already do this), and treat exit code 124 as
 "re-scope with a sharper, narrower brief," not "retry the same prompt." If you must
@@ -87,7 +90,7 @@ Compose the brief (fill in the bracketed parts) and run from the repo root, **ca
 with `timeout`** so a stall fails fast instead of burning 20 minutes:
 
 ```bash
-timeout 600 opencode run --pure --dir "$ROOT" -m "$MODEL" --dangerously-skip-permissions "$(cat <<'PROMPT'
+timeout 600 opencode run --pure --thinking --dir "$ROOT" -m "$MODEL" --dangerously-skip-permissions "$(cat <<'PROMPT'
 You are a read-only code explorer. The user wants: <PASTE the request + any detail/constraints>.
 Read ONLY these files (do NOT scan the whole repo): <EXPLICIT file list>.
 WRITE your findings to .delegate/report.md and do NOT modify any other file. Keep it
@@ -153,7 +156,7 @@ and tool-running — you wait, but watch for the stall signature (no streamed ou
 and let `timeout` bound it:
 
 ```bash
-timeout 900 opencode run --pure --dir "$ROOT" -m "$MODEL" ${DELEGATE_VARIANT:+--variant "$DELEGATE_VARIANT"} \
+timeout 900 opencode run --pure --thinking --dir "$ROOT" -m "$MODEL" ${DELEGATE_VARIANT:+--variant "$DELEGATE_VARIANT"} \
   --dangerously-skip-permissions "$(cat "$ROOT/.delegate/spec.md")" \
   || echo "implement run exited $? (124 = timed out → tighten or split the spec, then retry)"
 ```
