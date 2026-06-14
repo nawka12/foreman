@@ -1,0 +1,6 @@
+# delegation scratch (specs + correction notes are per-task, not committed)
+.delegate/
+
+# python bytecode (generated when running acceptance tests during review)
+__pycache__/
+*.pyc
