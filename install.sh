@@ -19,6 +19,19 @@ info() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# ---- help -------------------------------------------------------------------
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  info "Foreman installer — links the slash commands into your Claude commands dir so"
+  info "/delegate and /opencode-model work in every project."
+  info ""
+  info "  ./install.sh              install (or repair) the symlinks"
+  info "  ./install.sh --uninstall  remove the symlinks"
+  info "  ./install.sh --help       show this help"
+  info ""
+  info "Override the target dir with CLAUDE_COMMANDS_DIR=/some/path ./install.sh"
+  exit 0
+fi
+
 # ---- uninstall -------------------------------------------------------------
 if [ "${1:-}" = "-u" ] || [ "${1:-}" = "--uninstall" ]; then
   for f in $FILES; do
@@ -31,7 +44,7 @@ if [ "${1:-}" = "-u" ] || [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
-if [ -n "${1:-}" ]; then die "unknown argument: $1 (use --uninstall, or no args to install)"; fi
+if [ -n "${1:-}" ]; then die "unknown argument: $1 (use --uninstall, --help, or no args to install)"; fi
 
 # ---- requirements (warn only) ----------------------------------------------
 command -v opencode >/dev/null 2>&1 || warn "'opencode' not on PATH — install it: https://opencode.ai"
