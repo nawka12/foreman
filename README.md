@@ -40,14 +40,28 @@ against acceptance criteria, and commits when it passes (re-delegating a
 correction when it doesn't). Review-gated auto-commit — you stay out of the
 inner loop.
 
-## Make it available in every project
+## Install
 
-`/delegate` lives in this repo's `.claude/commands/`. To use it anywhere, link
-it into your user commands:
+Foreman is two Claude Code slash commands. Make them available in every project
+by linking them into your user commands directory:
 
 ```bash
-ln -s "$PWD/.claude/commands/delegate.md" ~/.claude/commands/delegate.md
+git clone https://github.com/nawka12/foreman.git
+cd foreman
+mkdir -p ~/.claude/commands
+ln -s "$PWD/.claude/commands/delegate.md"       ~/.claude/commands/delegate.md
+ln -s "$PWD/.claude/commands/opencode-model.md" ~/.claude/commands/opencode-model.md
 ```
+
+**Requirements**
+
+- [OpenCode](https://opencode.ai) installed and authenticated
+  (`opencode auth login`) for whichever provider serves your executor model.
+- A git repo to run `/delegate` in — it uses `git diff` to review and
+  `git commit` to gate.
+
+Then, from any project: `/delegate <task>` to delegate work, and
+`/opencode-model [provider/model]` to list or set the executor model.
 
 ## Model tiers
 
